@@ -1,0 +1,211 @@
+---
+title: "Practical Machine Learning Final Project - Motion Classification"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Zhe Jiang
+#### Nov 9, 2018
+
+## __Introduction__
+### __Background__
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+### __Data__  
+The training data for this project are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv).
+
+The test data are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+Participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), __throwing the elbows to the front (Class B)__, __lifting the dumbbell only halfway (Class C)__, __lowering the dumbbell only halfway (Class D)__ and __throwing the hips to the front (Class E)__. __Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes__. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+More informnation for this project come from this source [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har).
+
+## __Objective__   
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. This is the "classe" variable in the training set. I can use any of the other variables to predict with, and create a report describing how I built your model, how I used cross validation, what I think the expected out of sample error is, and why I made the choices you did. I will also use the prediction model to predict 20 different test cases.
+
+## __Preprocessing__
+Let's load the train and test data into environment.
+```{r cache = TRUE}
+train_file_name <- "pml-training.csv"
+test_file_name <- "pml-testing.csv"
+train_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+# Check if the data is downloaded and download when applicable
+if (!file.exists(train_file_name)) {
+    download.file(train_url, destfile = train_file_name )
+}
+if (!file.exists(test_file_name)) {
+    download.file(test_url, destfile = test_file_name )
+}
+train_data <- read.csv(train_file_name)
+test_data <- read.csv(test_file_name)
+```
+Train-Test data has been loaded, let's see how many cases in total.
+```{r}
+dim(train_data)
+dim(test_data)
+```
+Total 19622 cases are collected for training and 20 cases for test with 159 predictors to predict "classe" variable.  
+Now, let's see the stucture of training data.
+```{r}
+str(train_data)
+```
+Many missing values were collected into data. Let's see total number of missing datas in dataset.
+```{r}
+sapply(train_data, function(x) sum(x == "" | is.na(x)))
+```
+It shows that many variable has missing 19216 datas. Since there is too many missing data compared to full training data, I decided not to consider those variables in model. Let's see what those variables are.
+```{r}
+findNonPredictors <- function (data) {
+    x <- sapply(data, function(x) sum(x == "" | is.na(x)))
+    l <- c()
+    for (i in 1:length(x)) {
+        if (x[[i]] != 0) {l <- c(l, i)}
+    }
+    return (l)
+}
+length(findNonPredictors(train_data))
+```
+In total, 100 variables has large amount of missing datas. The reason for the large amount of missing values is unknown, but the rest of data is efficient enought to predict "classe" variable.  
+Let's create training set without those variables.
+```{r}
+library(caret)
+NotPredictors <- findNonPredictors(train_data)
+training <- train_data[,-NotPredictors]
+testing <- test_data[,-NotPredictors]
+```
+Now, the first few variables seem to be informatic. The first variable, X, is merely index of each cases, and user_name is the name of 6 participants, and rest few variables indicated when and how participants were involved in this experiments. Hence, I will not include first 7 variables in the model as well.
+```{r}
+training <- training[,-(1:7)]
+testing <-  testing[,-(1:7)]
+```
+Now, training data contains only necessary variables to modelling. Let's see the sumamry of training data.
+```{r}
+summary(training)
+```
+Now, let's see the correlation of each predictors and figure out whether we need all 52 variables to predict "classe" variable. 
+```{r}
+M <- cor(training[,-53])
+diag(M) <- 0
+which(abs(M) > 0.9, arr.ind = T)
+```
+It shows that there are few highly correlated data. columnns of (1,4), (1,9), (1,10),(4,9), (31,33), (33, 46), (31, 46) and etc. Let's see few correlation plot.
+```{r}
+par(mfrow = c(2,2))
+plot(training[,1],training[,4])
+plot(training[,1],training[,9])
+plot(training[,1],training[,10])
+plot(training[,4],training[,9])
+```
+
+As I expected, 1,4,9,10th predictors are highly correlated, but there is no significant outliers. Let's see the rest of the correlation plot.
+```{r}
+par(mfrow = c(1,3))
+plot(training[,33],training[,46])
+plot(training[,31],training[,33])
+plot(training[,31],training[,46])
+```
+
+We can see most of the points concentrated at (0,0), but there is one point that seems to be outlier. Let's investigate that particular case
+```{r}
+c(which.min(training[,31]), which.max(training[,31]))
+c(which.min(training[,33]), which.max(training[,33]))
+c(which.min(training[,46]), which.max(training[,46]))
+```
+It seems that case 5373 needs to be investigated. let's see how it effects rest of that. Let's compare to mean.
+```{r}
+training[5373,c(31,33,46)]
+sapply(training[,c(31,33,46)], mean)
+```
+It seems that 5373th case brings quite variability. Let's how it makes difference by removing that case.
+```{r}
+M <- cor(training[-5373,-53])
+diag(M) <- 0
+which(abs(M) > 0.9, arr.ind = T)
+```
+Now, we can see that correlation between 31, 33, and 46th variables do not exceed 0.9. Let's see the correlation of those
+```{r}
+cor(training[-5373,31], training[-5373,33])
+cor(training[-5373,33], training[-5373,46])
+cor(training[-5373,31], training[-5373,46])
+```
+It seems that 31 and 33th variable are still correlated, but 33 and 46, 31 and 46 are not correlated. I believe 5373th case is recorded incorrectly so let's discard this case in this analysis since we have almost 20k rows of data. 
+```{r}
+training <- training[-5373, ]
+```
+Now, we removed one outlier, but some of the variables are still highly correlated. Let's use "pca" in caret package to reduce correlation and dimensions. Also, it will also normalize the data as well.  
+```{r}
+preProcValues <- preProcess(training[-53], method = "pca")
+trainTrans <- predict(preProcValues, training[,-53])
+testTrans <- predict(preProcValues, testing[,-53])
+N <- cor(trainTrans)
+diag(N) <- 0
+which(abs(N) > 0.5, arr.ind = T)
+```
+Now, we can see there is no correlated data.
+Let's output the dimension of new uncollreated data
+```{r}
+dim(trainTrans)
+dim(testTrans)
+```  
+From 52 predictors, now we have 26 uncorrelated predictors only. 
+
+
+```{r}
+trainTrans <- cbind(trainTrans, training[,53])
+colnames(trainTrans)[dim(trainTrans)[2]] <- "classe"
+
+testTrans <- cbind(testTrans, testing[,53])
+colnames(testTrans)[dim(testTrans)[2]] <- "problem_id"
+```
+
+## __Modeling__
+Before fitting the model, let's set cross validation train-test split and cross validation parameters.
+```{r}
+set.seed(12315)
+inTrain <- createDataPartition(y = trainTrans$classe,
+                               p = 3/4, list = FALSE)
+trainPart <- trainTrans[inTrain,]
+testPart <- trainTrans[-inTrain,]
+
+trControl <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+```
+
+Since this analysis is a classificaiton problem, I will use Decision Tree, Gradient Boosting, and Random Forest to train the data. The Random Forest is expected to output the highest accuracy.  
+
+```{r cache = TRUE}
+# Decision Tree
+mod_rpart <- train(classe ~ ., data = trainPart,
+                   method = "rpart", trControl = trControl)
+# Stochastic Gradient Boosting
+mod_gbm <- train(classe ~ ., data = trainPart,
+                 method = "gbm", trControl = trControl,verbose = FALSE)
+# Random Forest
+mod_rf <- train(classe ~ ., data = trainPart,
+                method = "rf", trControl = trControl,verbose = FALSE)
+```
+Let's see the overall accuracy of the three model.  
+
+```{r cache = TRUE}
+# Dicision Tree
+confusionMatrix(testPart$classe,predict(mod_rpart, newdata = testPart))$overall[1]
+# Gredient Boosting
+confusionMatrix(testPart$classe,predict(mod_gbm, newdata = testPart))$overall[1]
+# Random Forest
+confusionMatrix(testPart$classe,predict(mod_rf, newdata = testPart))$overall[1]
+```
+
+As we expected, Random Forest algorithm gives the highest accuracy. Hence, let's use RF model to test set.
+
+## __Prediction__
+```{r}
+pred_rf <- predict(mod_rf, newdata = testTrans)
+pred_rf
+```
+
+
+
+
